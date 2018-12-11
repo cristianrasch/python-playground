@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+
+import subprocess
+
+res = subprocess.run('hostname', stdout=subprocess.PIPE)
+res.stdout.rstrip().decode('utf-8')
