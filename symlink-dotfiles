@@ -17,9 +17,8 @@ hostname = socket.gethostname()
 # res = subprocess.run('hostname', stdout=subprocess.PIPE)
 # hostname = res.stdout.rstrip().decode('utf-8')
 host_bkp_dir = bkps_dir / hostname
-excl_suffixes = {'.desktop', '.vcf', '.xz', '.EXE', '.txt', '.csv'}
-excl_names = {'signature', 'scripts', 'mc', 'mutt', 'Pictures', 'keyboard',
-                'crypto'}
+excl_suffixes = {'.desktop', '.vcf', '.xz', '.EXE', '.txt', '.csv', '.ldif'}
+excl_names = {'scripts', 'mc', 'mutt', 'Pictures', 'keyboard', 'crypto'}
 not_hidden_dirs = {'bin'}
 
 def filter_files_from(bkp_path):
