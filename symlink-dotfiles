@@ -42,6 +42,7 @@ for path in host_files:
         target = home_dir / dest
 
     if args.dry_run:
-        print('ln -s %s %s' % (path, target))
+        print('ln -s {1} {0}'.format(target, path))
+        # print('ln -s %s %s' % (path, target))
     else:
         path.symlink_to(target)
