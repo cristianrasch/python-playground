@@ -2,8 +2,8 @@
 
 import argparse
 import socket
-# import subprocess
 from pathlib import Path
+import platform
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dry-run", help="print ln commands to stdout",
@@ -13,18 +13,18 @@ args = parser.parse_args()
 home_dir = Path('~').expanduser()
 bkps_dir = home_dir / 'Dropbox' / 'backups'
 shared_bkp_dir = bkps_dir / 'laptop'
-hostname = socket.gethostname()
-# res = subprocess.run('hostname', stdout=subprocess.PIPE)
-# hostname = res.stdout.rstrip().decode('utf-8')
+hostname = platform.node() or socket.gethostname()
 host_bkp_dir = bkps_dir / hostname
-excl_suffixes = {'.desktop', '.vcf', '.xz', '.EXE', '.txt', '.csv', '.ldif'}
-excl_names = {'scripts', 'mc', 'mutt', 'Pictures', 'keyboard', 'crypto'}
+excl_suffixes = {'.desktop', '.vcf', '.xz', '.EXE', '.txt', '.csv', '.ldif',
+                 '.conf'}
+excl_names = {'scripts', 'mc', 'mutt', 'Pictures', 'keyboard', 'crypto',
+              'signature', 'abook'}
 not_hidden_dirs = {'bin'}
 
 def filter_files_from(bkp_path):
-    return [path for path in bkp_path.glob('*') if '_' not in path.name and
-                                                    path.name not in excl_names and
-                                                    path.suffix not in excl_suffixes]
+    return [path for path in bkp_path.iterdir() if not path.name.startswith('_') and
+                                                   path.name not in excl_names and
+                                                   path.suffix not in excl_suffixes]
 
 host_files = filter_files_from(host_bkp_dir)
 host_filenames = {path.name for path in host_files}
@@ -33,16 +33,24 @@ host_files.extend(shared_files)
 
 for path in host_files:
     if '-' in path.name:
-        *parts, name = path.name.split('-')
-        parts[0] = '.' + parts[0]
+        *parts, name = path.name.split('-', 2)
+
+        if name == 'config':
+            parts.insert(0, '.' + name)
+        else:
+            parts[0] = '.' + parts[0]
+
         target_dir = home_dir / Path(*parts)
+        target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / name
     else:
         dest = ('.%s' % path.name if not path.is_dir() or path.name not in not_hidden_dirs else path.name)
         target = home_dir / dest
 
     if args.dry_run:
-        print('ln -s {1} {0}'.format(target, path))
-        # print('ln -s %s %s' % (path, target))
+        print('ln -s {} {}'.format(path, target))
     else:
-        path.symlink_to(target)
+        try:
+            target.symlink_to(path)
+        except FileExistsError:
+            pass
