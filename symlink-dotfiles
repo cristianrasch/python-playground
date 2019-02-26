@@ -15,16 +15,16 @@ bkps_dir = home_dir / 'Dropbox' / 'backups'
 shared_bkp_dir = bkps_dir / 'laptop'
 hostname = platform.node() or socket.gethostname()
 host_bkp_dir = bkps_dir / hostname
-excl_suffixes = {'.desktop', '.vcf', '.xz', '.EXE', '.txt', '.csv', '.ldif',
-                 '.conf'}
-excl_names = {'scripts', 'mc', 'mutt', 'Pictures', 'keyboard', 'crypto',
-              'signature', 'abook'}
+excl_exts = {'.desktop', '.vcf', '.xz', '.EXE', '.txt', '.csv', '.ldif',
+                '.conf', '.js', '.json'}
+excl_bnames = {'scripts', 'mc', 'mutt', 'Pictures', 'keyboard', 'crypto',
+                  'signature', 'abook'}
 not_hidden_dirs = {'bin'}
 
 def filter_files_from(bkp_path):
     return [path for path in bkp_path.iterdir() if not path.name.startswith('_') and
-                                                   path.name not in excl_names and
-                                                   path.suffix not in excl_suffixes]
+                                                   path.name not in excl_bnames and
+                                                   path.suffix not in excl_exts]
 
 host_files = filter_files_from(host_bkp_dir)
 host_filenames = {path.name for path in host_files}
