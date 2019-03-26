@@ -7,9 +7,9 @@ import platform
 
 
 EXCL_EXTS = {'.desktop', '.vcf', '.xz', '.EXE', '.txt', '.csv', '.ldif',
-                '.conf', '.js', '.json'}
+             '.conf', '.js', '.json'}
 EXCL_BNAMES = {'scripts', 'mc', 'mutt', 'Pictures', 'keyboard', 'crypto',
-                  'signature', 'abook'}
+               'signature', 'abook'}
 NOT_HIDDEN_DIRS = {'bin'}
 HOME_DIR = Path('~').expanduser()
 BKPS_DIR = HOME_DIR / 'Dropbox' / 'backups'
