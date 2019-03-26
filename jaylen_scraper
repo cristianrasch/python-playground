@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+
+"""
+Initial venv setup:
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+"""
+
+import csv
+import logging
+from pathlib import Path
+import os
+import re
+import shutil
+import sys
+import time
+from urllib.parse import urljoin, unquote_plus
+import zipfile
+
+import requests
+from requests_html import HTML
+
+
+BASE_URL = 'https://www.jaylen.com.ar'
+CATEGORIES_PATH = '/categorias'
+TIMEOUT = 5
+SESSION = requests.Session()
+MAX_RETRIES = 3
+NON_WORD_RE = re.compile('\W+')
+SCRIPT_PATH = Path(__file__).resolve()
+OUT_PATH = SCRIPT_PATH.parent / 'categories'
+OUT_PATH.mkdir(exist_ok=True)
+HEADERS = ['sku', 'title', 'price', 'img_url', 'thumb_url']
+PRICE_RE = re.compile('\d+')
+IS_WIN_PLAT = sys.platform.startswith('win')
+CSV_DIALECT = 'excel' if IS_WIN_PLAT else 'unix'
+ZIP_COMPRESSION = zipfile.ZIP_STORED if IS_WIN_PLAT else zipfile.ZIP_LZMA
+
+
+log_level = logging.DEBUG if os.environ.get('DEBUG') else logging.INFO
+logging.basicConfig(filename=f'{SCRIPT_PATH.stem}.log', filemode='w',
+                    level=log_level)
+
+def get(url):
+    logging.debug(f'GET {url}')
+    retries = 0
+    txt = None
+
+    while txt is None and retries < MAX_RETRIES:
+        try:
+            res = SESSION.get(url, timeout=TIMEOUT)
+        except requests.exceptions.Timeout:
+            retries += 1
+            logging.warning(f'GET {url} timed out [retry #{retries}]. Going to sleep for {retries} sec(s)')
+            time.sleep(retries)
+        else:
+            if res.status_code == requests.codes.ok:
+                txt = res.text
+
+    return txt
+
+
+def normalize_bname(basename):
+    return NON_WORD_RE.sub('_', basename).casefold()
+
+
+def write_cat_csv_file(cat_doc, csv_path):
+    if csv_path.exists(): return True
+
+    # document.querySelectorAll('[data-sku]').length
+    # document.querySelectorAll('.caption .product-price').length
+    prod_anchors = cat_doc.find('[data-sku]')
+    if not prod_anchors: return
+
+    prod_prices = cat_doc.find('.caption .product-price')
+
+    with csv_path.open(mode='w', newline='') as cat_file:
+        cat_writer = csv.writer(cat_file, dialect=CSV_DIALECT)
+        cat_writer.writerow(HEADERS)
+
+        for prod, price in zip(prod_anchors, prod_prices):
+            mo = PRICE_RE.match(price.text)
+            price =  mo.group() if mo else None
+            thumb_url = urljoin(BASE_URL,
+                                prod.find('img.product-thumb', first=True).attrs['src'])
+
+            row = [prod.attrs['data-sku'], prod.attrs['title'], price,
+                    urljoin(BASE_URL, prod.attrs['data-image-url']),
+                    thumb_url]
+            cat_writer.writerow(row)
+
+    return True
+
+
+categories_url = urljoin(BASE_URL, CATEGORIES_PATH)
+cats_html = get(categories_url)
+if cats_html is None:
+    sys.exit(f'Unable to scrape {categories_url}')
+
+csv_paths = []
+cats_doc = HTML(html=cats_html)
+# document.querySelectorAll('span.label.label-default').length
+for cat in cats_doc.find('span.label.label-default'):
+    cat_url = urljoin(f'{categories_url}/', cat.text)
+    cats_html = get(cat_url)
+    if cats_html is None:
+        continue
+
+    sub_cats_doc = HTML(html=cats_html)
+    cat_path = OUT_PATH / normalize_bname(cat.text)
+    cat_csv_path = cat_path.with_suffix('.csv')
+    if write_cat_csv_file(sub_cats_doc, cat_csv_path):
+        csv_paths.append(cat_csv_path)
+
+    # document.querySelectorAll('a.list-group-item.subcategory-link').length
+    sub_cats = sub_cats_doc.find('a.list-group-item.subcategory-link')
+    if sub_cats:
+        cat_path.mkdir(exist_ok=True)
+
+        for sub_cat in sub_cats:
+            logging.debug(f'Sub cat: {sub_cat.text} [{sub_cat.attrs["href"]}]')
+
+            sub_cat_url = urljoin(BASE_URL, sub_cat.attrs["href"])
+            cat_html = get(sub_cat_url)
+            if cat_html is None:
+                continue
+
+            cat_doc = HTML(html=cat_html)
+            sub_cat_path = (cat_path / normalize_bname(sub_cat.text)).with_suffix('.csv')
+            if write_cat_csv_file(cat_doc, sub_cat_path):
+                csv_paths.append(sub_cat_path)
+
+zip_path = OUT_PATH.with_suffix('.zip')
+with zipfile.ZipFile(zip_path, mode='w', compresslevel=ZIP_COMPRESSION) as zip:
+    for csv_path in csv_paths:
+        zip.write(csv_path, arcname=csv_path.relative_to(OUT_PATH))
+shutil.rmtree(OUT_PATH)
