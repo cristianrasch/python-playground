@@ -5,30 +5,34 @@ import socket
 from pathlib import Path
 import platform
 
+
+EXCL_EXTS = {'.desktop', '.vcf', '.xz', '.EXE', '.txt', '.csv', '.ldif',
+                '.conf', '.js', '.json'}
+EXCL_BNAMES = {'scripts', 'mc', 'mutt', 'Pictures', 'keyboard', 'crypto',
+                  'signature', 'abook'}
+NOT_HIDDEN_DIRS = {'bin'}
+HOME_DIR = Path('~').expanduser()
+BKPS_DIR = HOME_DIR / 'Dropbox' / 'backups'
+SHARED_BKP_DIR = BKPS_DIR / 'laptop'
+HOSTNAME = platform.node() or socket.gethostname()
+HOST_BKP_DIR = BKPS_DIR / HOSTNAME
+
+
+def filter_files_from(bkp_path):
+    return [path for path in bkp_path.iterdir() if not path.name.startswith('_') and
+                                                   path.name not in EXCL_BNAMES and
+                                                   path.suffix not in EXCL_EXTS]
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--dry-run", help="print ln commands to stdout",
                     action="store_true")
 args = parser.parse_args()
 
-home_dir = Path('~').expanduser()
-bkps_dir = home_dir / 'Dropbox' / 'backups'
-shared_bkp_dir = bkps_dir / 'laptop'
-hostname = platform.node() or socket.gethostname()
-host_bkp_dir = bkps_dir / hostname
-excl_exts = {'.desktop', '.vcf', '.xz', '.EXE', '.txt', '.csv', '.ldif',
-                '.conf', '.js', '.json'}
-excl_bnames = {'scripts', 'mc', 'mutt', 'Pictures', 'keyboard', 'crypto',
-                  'signature', 'abook'}
-not_hidden_dirs = {'bin'}
 
-def filter_files_from(bkp_path):
-    return [path for path in bkp_path.iterdir() if not path.name.startswith('_') and
-                                                   path.name not in excl_bnames and
-                                                   path.suffix not in excl_exts]
-
-host_files = filter_files_from(host_bkp_dir)
+host_files = filter_files_from(HOST_BKP_DIR)
 host_filenames = {path.name for path in host_files}
-shared_files = [path for path in filter_files_from(shared_bkp_dir) if path.name not in host_filenames]
+shared_files = [path for path in filter_files_from(SHARED_BKP_DIR) if path.name not in host_filenames]
 host_files.extend(shared_files)
 
 for path in host_files:
@@ -40,12 +44,12 @@ for path in host_files:
         else:
             parts[0] = '.' + parts[0]
 
-        target_dir = home_dir / Path(*parts)
+        target_dir = HOME_DIR / Path(*parts)
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / name
     else:
-        dest = ('.%s' % path.name if not path.is_dir() or path.name not in not_hidden_dirs else path.name)
-        target = home_dir / dest
+        dest = ('.%s' % path.name if not path.is_dir() or path.name not in NOT_HIDDEN_DIRS else path.name)
+        target = HOME_DIR / dest
 
     if args.dry_run:
         print('ln -s {} {}'.format(path, target))
