@@ -101,7 +101,6 @@ def write_cat_csv_file(doc, csv_path, page):
 
 
 def scrape_prods_from(url, *, category, parent_category=None):
-    logging.debug(f'Scraping products from category: {category} (parent cat: #{parent_category})')
     csv_paths = set()
     page = 1
     done = False
