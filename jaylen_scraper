@@ -11,7 +11,6 @@ pip install -r requirements.txt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import logging
-from itertools import repeat
 from multiprocessing import cpu_count
 from pathlib import Path
 import os
