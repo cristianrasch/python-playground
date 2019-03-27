@@ -11,6 +11,7 @@ pip install -r requirements.txt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import logging
+from itertools import repeat
 from multiprocessing import cpu_count
 from pathlib import Path
 import os
@@ -100,8 +101,8 @@ def write_cat_csv_file(doc, csv_path, page):
     return rows
 
 
-def scrape_prods_from(url, *, category, parent_category=None):
-    logging.debug(f'Scraping products from category: {category} (parent cat: #{parent_category})')
+def scrape_prods_from(url, category, parent_category, executor):
+    logging.debug(f'Scraping products from category: {category} (parent cat: {parent_category})')
     csv_paths = set()
     page = 1
     done = False
@@ -132,14 +133,14 @@ def scrape_prods_from(url, *, category, parent_category=None):
             sub_cats = doc.find('a.list-group-item.subcategory-link')
 
             if sub_cats:
-                with ThreadPoolExecutor(max_workers=CPU_COUNT) as executor:
-                    futures = [executor.submit(scrape_prods_from,
-                                               urljoin(BASE_URL, cat.attrs["href"]),
-                                               category=cat.text,
-                                               parent_category=category)
-                               for cat in sub_cats]
+                futures = [executor.submit(scrape_prods_from,
+                                           urljoin(BASE_URL, cat.attrs["href"]),
+                                           cat.text, category, None)
+                           for cat in sub_cats]
+                print(f'{len(futures)} futures submitted')
 
                 for future in as_completed(futures):
+                    print('This never prints')
                     try:
                         sub_cat_csv_paths = future.result()
                     except:
@@ -148,16 +149,6 @@ def scrape_prods_from(url, *, category, parent_category=None):
                         print_tb(exc_tb)
                     else:
                         csv_paths.update(sub_cat_csv_paths)
-
-                # sub_cat_urls = [urljoin(BASE_URL, cat.attrs["href"]) for cat in sub_cats]
-                # sub_cat_names = [cat.text for cat in sub_cats]
-                # sub_cat_cnt = len(sub_cats)
-                # cat_names = repeat(category, times=sub_cat_cnt)
-                # executors = repeat(None, times=sub_cat_cnt)
-                # args = [sub_cat_urls, sub_cat_names, cat_names, executors]
-
-                # for sub_cat_csv_paths in executor.map(scrape_prods_from, args):
-                #     csv_paths.extend(sub_cat_csv_paths)
 
     return csv_paths
 
@@ -173,11 +164,11 @@ thr_cnt = min(CPU_COUNT*2, len(root_cats))
 
 zip_path = OUT_PATH.with_suffix('.zip')
 with zipfile.ZipFile(zip_path, mode='w', compresslevel=ZIP_COMPRESSION) as zip:
-    with ThreadPoolExecutor(max_workers=thr_cnt) as executor:
+    with ThreadPoolExecutor(max_workers=thr_cnt) as tp_exec:
         # document.querySelectorAll('span.label.label-default').length
-        futures = [executor.submit(scrape_prods_from,
-                                   urljoin(f'{categories_url}/', root_cat.text),
-                                   category=root_cat.text)
+        futures = [tp_exec.submit(scrape_prods_from, urljoin(f'{categories_url}/',
+                                                             root_cat.text),
+                                  root_cat.text, None, tp_exec)
                    for root_cat in root_cats]
 
         for future in as_completed(futures):
