@@ -8,14 +8,18 @@ source venv/bin/activate
 pip install -r requirements.txt
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 import logging
+from itertools import repeat
+from multiprocessing import cpu_count
 from pathlib import Path
 import os
 import re
 import shutil
 import sys
 import time
+from traceback import print_tb
 from urllib.parse import urljoin, unquote_plus
 import zipfile
 
@@ -39,7 +43,7 @@ CSV_DIALECT = 'excel' if IS_WIN_PLAT else 'unix'
 ZIP_COMPRESSION = zipfile.ZIP_STORED if IS_WIN_PLAT else zipfile.ZIP_LZMA
 SKU_RE = re.compile('\(([^)]+)\)\Z')
 PRODS_PER_PAGE = 9
-CSV_PATHS = set()
+CPU_COUNT = cpu_count()
 
 log_level = logging.DEBUG if os.environ.get('DEBUG') else logging.INFO
 logging.basicConfig(filename=f'{SCRIPT_PATH.stem}.log', filemode='w',
@@ -97,7 +101,9 @@ def write_cat_csv_file(doc, csv_path, page):
     return rows
 
 
-def scrape_prods_from(url, category, *, parent_category=None):
+def scrape_prods_from(url, *, category, parent_category=None):
+    logging.debug(f'Scraping products from category: {category} (parent cat: #{parent_category})')
+    csv_paths = set()
     page = 1
     done = False
 
@@ -118,7 +124,7 @@ def scrape_prods_from(url, category, *, parent_category=None):
 
         product_count = write_cat_csv_file(doc, cat_csv_path, page)
         if product_count and page == 1:
-            CSV_PATHS.add(cat_csv_path)
+            csv_paths.add(cat_csv_path)
 
         done = product_count < PRODS_PER_PAGE
         if not done: page += 1
@@ -127,10 +133,34 @@ def scrape_prods_from(url, category, *, parent_category=None):
             sub_cats = doc.find('a.list-group-item.subcategory-link')
 
             if sub_cats:
-                for sub_cat in sub_cats:
-                    sub_cat_url = urljoin(BASE_URL, sub_cat.attrs["href"])
-                    scrape_prods_from(sub_cat_url, category=sub_cat.text,
-                                      parent_category=category)
+                with ThreadPoolExecutor(max_workers=CPU_COUNT) as executor:
+                    futures = [executor.submit(scrape_prods_from,
+                                               urljoin(BASE_URL, cat.attrs["href"]),
+                                               category=cat.text,
+                                               parent_category=category)
+                               for cat in sub_cats]
+
+                for future in as_completed(futures):
+                    try:
+                        sub_cat_csv_paths = future.result()
+                    except:
+                        exc_type, exc_val, exc_tb = sys.exc_info()
+                        logging.error(str(exc_type))
+                        print_tb(exc_tb)
+                    else:
+                        csv_paths.update(sub_cat_csv_paths)
+
+                # sub_cat_urls = [urljoin(BASE_URL, cat.attrs["href"]) for cat in sub_cats]
+                # sub_cat_names = [cat.text for cat in sub_cats]
+                # sub_cat_cnt = len(sub_cats)
+                # cat_names = repeat(category, times=sub_cat_cnt)
+                # executors = repeat(None, times=sub_cat_cnt)
+                # args = [sub_cat_urls, sub_cat_names, cat_names, executors]
+
+                # for sub_cat_csv_paths in executor.map(scrape_prods_from, args):
+                #     csv_paths.extend(sub_cat_csv_paths)
+
+    return csv_paths
 
 
 categories_url = urljoin(BASE_URL, CATEGORIES_PATH)
@@ -139,14 +169,27 @@ if cats_html is None:
     sys.exit(f'Unable to scrape {categories_url}')
 
 cats_doc = HTML(html=cats_html)
-# document.querySelectorAll('span.label.label-default').length
-for root_cat in cats_doc.find('span.label.label-default'):
-    root_cat_url = urljoin(f'{categories_url}/', root_cat.text)
-    scrape_prods_from(root_cat_url, category=root_cat.text)
-
+root_cats = cats_doc.find('span.label.label-default')
+thr_cnt = min(CPU_COUNT*2, len(root_cats))
 
 zip_path = OUT_PATH.with_suffix('.zip')
 with zipfile.ZipFile(zip_path, mode='w', compresslevel=ZIP_COMPRESSION) as zip:
-    for csv_path in CSV_PATHS:
-        zip.write(csv_path, arcname=csv_path.relative_to(OUT_PATH))
+    with ThreadPoolExecutor(max_workers=thr_cnt) as executor:
+        # document.querySelectorAll('span.label.label-default').length
+        futures = [executor.submit(scrape_prods_from,
+                                   urljoin(f'{categories_url}/', root_cat.text),
+                                   category=root_cat.text)
+                   for root_cat in root_cats]
+
+        for future in as_completed(futures):
+            try:
+                csv_paths = future.result()
+            except:
+                exc_type, exc_val, exc_tb = sys.exc_info()
+                logging.error(str(exc_type))
+                print_tb(exc_tb)
+            else:
+                for csv_path in csv_paths:
+                    zip.write(csv_path, arcname=csv_path.relative_to(OUT_PATH))
+
 shutil.rmtree(OUT_PATH)
