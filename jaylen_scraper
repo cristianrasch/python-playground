@@ -142,21 +142,9 @@ def scrape_prods_from(url, *, category, parent_category=None):
                     try:
                         sub_cat_csv_paths = future.result()
                     except:
-                        exc_type, exc_val, exc_tb = sys.exc_info()
-                        logging.error(str(exc_type))
-                        print_tb(exc_tb)
+                        logging.exception(f"Error scraping a subcat of root cat: '{category}'")
                     else:
                         csv_paths.update(sub_cat_csv_paths)
-
-                # sub_cat_urls = [urljoin(BASE_URL, cat.attrs["href"]) for cat in sub_cats]
-                # sub_cat_names = [cat.text for cat in sub_cats]
-                # sub_cat_cnt = len(sub_cats)
-                # cat_names = repeat(category, times=sub_cat_cnt)
-                # executors = repeat(None, times=sub_cat_cnt)
-                # args = [sub_cat_urls, sub_cat_names, cat_names, executors]
-
-                # for sub_cat_csv_paths in executor.map(scrape_prods_from, args):
-                #     csv_paths.extend(sub_cat_csv_paths)
 
     return csv_paths
 
@@ -168,7 +156,7 @@ if cats_html is None:
 
 cats_doc = HTML(html=cats_html)
 root_cats = cats_doc.find('span.label.label-default')
-thr_cnt = min(CPU_COUNT*2, len(root_cats))
+thr_cnt = min(CPU_COUNT, len(root_cats))
 
 zip_path = OUT_PATH.with_suffix('.zip')
 with zipfile.ZipFile(zip_path, mode='w', compresslevel=ZIP_COMPRESSION) as zip:
@@ -183,9 +171,7 @@ with zipfile.ZipFile(zip_path, mode='w', compresslevel=ZIP_COMPRESSION) as zip:
             try:
                 csv_paths = future.result()
             except:
-                exc_type, exc_val, exc_tb = sys.exc_info()
-                logging.error(str(exc_type))
-                print_tb(exc_tb)
+                logging.exception(f"Error scraping a root category")
             else:
                 for csv_path in csv_paths:
                     zip.write(csv_path, arcname=csv_path.relative_to(OUT_PATH))
