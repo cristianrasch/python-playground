@@ -22,13 +22,13 @@ from traceback import print_tb
 from urllib.parse import urljoin, unquote_plus
 import zipfile
 
+from bs4 import BeautifulSoup
 import requests
-from requests_html import HTML
 
 
 BASE_URL = 'https://www.jaylen.com.ar'
 CATEGORIES_PATH = '/categorias'
-TIMEOUT = 5
+TIMEOUT = int(os.environ.get('TIMEOUT', 5))
 SESSION = requests.Session()
 MAX_RETRIES = 3
 NON_WORD_RE = re.compile('\W+')
@@ -43,6 +43,7 @@ ZIP_COMPRESSION = zipfile.ZIP_STORED if IS_WIN_PLAT else zipfile.ZIP_LZMA
 SKU_RE = re.compile('\(([^)]+)\)\Z')
 PRODS_PER_PAGE = 9
 CPU_COUNT = cpu_count()
+HTML_PARSER = 'html.parser'
 
 log_level = logging.DEBUG if os.environ.get('DEBUG') else logging.INFO
 logging.basicConfig(filename=f'{SCRIPT_PATH.stem}.log', filemode='w',
@@ -79,19 +80,19 @@ def write_cat_csv_file(doc, csv_path, page):
         cat_writer = csv.writer(cat_file, dialect=CSV_DIALECT)
         if page == 1: cat_writer.writerow(HEADERS)
 
-        for thumb in doc.find('.thumbnail'):
-            img = thumb.find('img.product-thumb', first=True)
-            thumb_url = urljoin(BASE_URL, img.attrs['src'])
-            desc = img.attrs['alt']
-            caption = thumb.find('.caption', first=True)
+        for thumb in doc.select('.thumbnail'):
+            img = thumb.find('img', class_='product-thumb')
+            thumb_url = urljoin(BASE_URL, img['src'])
+            desc = img['alt']
+            caption = thumb.select('.caption', limit=1)[0]
             # document.querySelector('.caption').querySelector('a[href^="mailto:"]')
-            mailto_anchor = caption.find('a[href^="mailto:"]', first=True)
-            sku = SKU_RE.search(unquote_plus(mailto_anchor.attrs['href'])).group(1)
-            price_node = caption.find('.product-price', first=True)
-            mo = PRICE_RE.match(price_node.text)
+            mailto_anchor = caption.select('a[href^="mailto:"]', limit=1)[0]
+            sku = SKU_RE.search(unquote_plus(mailto_anchor['href'])).group(1)
+            price_node = caption.select('.product-price', limit=1)[0]
+            mo = PRICE_RE.match(price_node.string)
             price =  mo.group() if mo else None
-            sku_node = thumb.find('[data-sku]', first=True)
-            img_url = urljoin(BASE_URL, sku_node.attrs['data-image-url']) if sku_node else None
+            sku_node = thumb.find(attrs={'data-sku': True})
+            img_url = urljoin(BASE_URL, sku_node['data-image-url']) if sku_node else None
 
             row = [sku, desc, price, img_url, thumb_url]
             cat_writer.writerow(row)
@@ -109,7 +110,7 @@ def scrape_prods_from(url, *, category, parent_category=None):
         html = get(url, params={'pagina': page})
         if html is None: break
 
-        doc = HTML(html=html)
+        doc = BeautifulSoup(html, HTML_PARSER)
         cat_bname = normalize_bname(category)
         if parent_category:
             par_cat_path = OUT_PATH / normalize_bname(parent_category)
@@ -128,13 +129,13 @@ def scrape_prods_from(url, *, category, parent_category=None):
         if not done: page += 1
 
         if not parent_category:
-            sub_cats = doc.find('a.list-group-item.subcategory-link')
+            sub_cats = doc.select('a.list-group-item.subcategory-link')
 
             if sub_cats:
                 with ThreadPoolExecutor(max_workers=CPU_COUNT) as executor:
                     futures = [executor.submit(scrape_prods_from,
-                                               urljoin(BASE_URL, cat.attrs["href"]),
-                                               category=cat.text,
+                                               urljoin(BASE_URL, cat["href"]),
+                                               category=cat.string,
                                                parent_category=category)
                                for cat in sub_cats]
 
@@ -154,17 +155,17 @@ cats_html = get(categories_url)
 if cats_html is None:
     sys.exit(f'Unable to scrape {categories_url}')
 
-cats_doc = HTML(html=cats_html)
-root_cats = cats_doc.find('span.label.label-default')
+cats_doc = BeautifulSoup(cats_html, HTML_PARSER)
+# document.querySelectorAll('span.label.label-default').length
+root_cats = cats_doc.select('span.label.label-default')
 thr_cnt = min(CPU_COUNT, len(root_cats))
 
 zip_path = OUT_PATH.with_suffix('.zip')
 with zipfile.ZipFile(zip_path, mode='w', compresslevel=ZIP_COMPRESSION) as zip:
     with ThreadPoolExecutor(max_workers=thr_cnt) as executor:
-        # document.querySelectorAll('span.label.label-default').length
         futures = [executor.submit(scrape_prods_from,
-                                   urljoin(f'{categories_url}/', root_cat.text),
-                                   category=root_cat.text)
+                                   urljoin(f'{categories_url}/', root_cat.string),
+                                   category=root_cat.string)
                    for root_cat in root_cats]
 
         for future in as_completed(futures):
