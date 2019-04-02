@@ -84,11 +84,11 @@ def write_cat_csv_file(doc, csv_path, page):
             img = thumb.find('img', class_='product-thumb')
             thumb_url = urljoin(BASE_URL, img['src'])
             desc = img['alt']
-            caption = thumb.select('.caption', limit=1)[0]
+            caption = thumb.select_one('.caption')
             # document.querySelector('.caption').querySelector('a[href^="mailto:"]')
-            mailto_anchor = caption.select('a[href^="mailto:"]', limit=1)[0]
+            mailto_anchor = caption.select_one('a[href^="mailto:"]')
             sku = SKU_RE.search(unquote_plus(mailto_anchor['href'])).group(1)
-            price_node = caption.select('.product-price', limit=1)[0]
+            price_node = caption.select_one('.product-price')
             mo = PRICE_RE.match(price_node.string)
             price =  mo.group() if mo else None
             sku_node = thumb.find(attrs={'data-sku': True})
